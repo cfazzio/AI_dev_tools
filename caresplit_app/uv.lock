@@ -299,6 +299,7 @@ version = "0.1.0"
 source = { editable = "frontend" }
 dependencies = [
     { name = "caresplit-backend" },
+    { name = "httpx" },
     { name = "nicegui" },
 ]
 
@@ -306,11 +307,13 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "caresplit-backend", editable = "backend" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "nicegui", specifier = "==3.16.0" },
 ]
 
@@ -318,6 +321,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-asyncio", specifier = "==1.4.0" },
+    { name = "uvicorn", specifier = "==0.53.0" },
 ]
 
 [[package]]

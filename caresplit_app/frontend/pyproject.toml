@@ -8,11 +8,12 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "nicegui==3.16.0",
+    "httpx==0.28.1",
     "caresplit-backend",
 ]
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0"]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "uvicorn==0.53.0"]
 
 [tool.uv.sources]
 caresplit-backend = { workspace = true }

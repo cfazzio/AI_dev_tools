@@ -1,10 +1,10 @@
-"""The one place UI code asks for a CareSplitService implementation.
+"""Re-exports of this package's public API.
 
-Everything the UI needs from "the backend" goes through
-:class:`caresplit_backend.services.base.CareSplitService`. Right now only a mock,
-in-memory implementation exists, so this always returns that — but it is the
-single seam where a real implementation would be wired in later without any
-UI code changing.
+The in-process service-singleton pattern that used to live here
+(get_service/reset_service) moved to caresplit_frontend.services — that
+was always a frontend concern (which implementation the UI talks to), not
+a backend one. The backend's own consumer of MockCareSplitService is
+caresplit_backend/api/store.py, which instantiates it directly.
 """
 
 from __future__ import annotations
@@ -12,20 +12,4 @@ from __future__ import annotations
 from .base import CareSplitService
 from .mock_service import MockCareSplitService
 
-_service: CareSplitService | None = None
-
-
-def get_service() -> CareSplitService:
-    global _service
-    if _service is None:
-        _service = MockCareSplitService()
-    return _service
-
-
-def reset_service() -> None:
-    """Replace the singleton with a fresh mock. Mainly useful for tests."""
-    global _service
-    _service = MockCareSplitService()
-
-
-__all__ = ["CareSplitService", "MockCareSplitService", "get_service", "reset_service"]
+__all__ = ["CareSplitService", "MockCareSplitService"]

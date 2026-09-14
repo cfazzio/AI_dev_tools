@@ -1,9 +1,9 @@
 """The service contract. Every backend call the UI makes goes through this.
 
-Anything implementing this Protocol — the mock service today, a real
-database/API-backed service later — is a drop-in replacement for the UI.
-No UI module should import a concrete service class directly; always go
-through :func:`caresplit_backend.services.get_service`.
+Anything implementing this Protocol — the in-process mock, the HTTP-backed
+ApiCareSplitService — is a drop-in replacement for the UI. No UI module
+should import a concrete service class directly; always go through
+:func:`caresplit_frontend.services.get_service`.
 """
 
 from __future__ import annotations

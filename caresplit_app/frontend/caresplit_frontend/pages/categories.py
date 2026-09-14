@@ -6,7 +6,7 @@ from typing import Optional
 from nicegui import ui
 
 from caresplit_backend.domain import Category
-from caresplit_backend.services import get_service
+from caresplit_frontend.services import get_service
 from caresplit_backend.services.errors import CareSplitError
 from caresplit_frontend.components import format_pct
 from caresplit_frontend.layout import page_layout

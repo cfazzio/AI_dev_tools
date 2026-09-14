@@ -68,7 +68,7 @@ async def test_category_delete_blocked_when_in_use(user: User) -> None:
     from datetime import date
     from decimal import Decimal
 
-    from caresplit_backend.services import get_service
+    from caresplit_frontend.services import get_service
 
     service = get_service()
     category = service.list_categories()[0]

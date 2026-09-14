@@ -4,7 +4,7 @@ from datetime import date
 
 from nicegui import ui
 
-from caresplit_backend.services import get_service
+from caresplit_frontend.services import get_service
 from caresplit_frontend.components import split_pill, stat_card
 from caresplit_frontend.layout import page_layout
 

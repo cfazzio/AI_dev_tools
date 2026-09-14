@@ -4,20 +4,26 @@ info:
   version: 0.2.0
   description: >
     The backend contract the CareSplit frontend expects, derived directly
-    from every call `frontend/` makes to `caresplit_backend.services.get_service()`
-    (its `CareSplitService` protocol client — see
-    `backend/caresplit_backend/services/base.py`). Implemented as a real,
-    runnable FastAPI app at `backend/caresplit_backend/api/` (in-memory
-    store, not a database) — see that package's `main.py` to run it. The
-    frontend itself still talks to the service in-process, not over HTTP;
-    this API is a standalone, independently-tested implementation of the
-    same contract, not (yet) what the frontend actually calls.
+    from every call `frontend/` makes through its `CareSplitService`
+    protocol client — see `backend/caresplit_backend/services/base.py`.
+    Implemented as a real, runnable FastAPI app at
+    `backend/caresplit_backend/api/` (in-memory store, not a database) —
+    see that package's `main.py` to run it. The frontend calls this API
+    for real by default (via `ApiCareSplitService`, in
+    `frontend/caresplit_frontend/api_client.py`) — set the
+    `CARESPLIT_BACKEND=mock` environment variable to run the frontend
+    against the in-process mock instead (no backend process needed; this
+    is what the frontend's own test suite forces, so its tests never need
+    a live server).
 
     Scope note: only operations the frontend actually invokes are
     included. `CareSplitService` also defines `get_category(id)` and
-    `get_expense(id)`, but no frontend page calls them — every page works
-    from list results already in hand — so no `GET /categories/{id}` or
-    `GET /expenses/{id}` is specified here. A real backend may still want
+    `get_expense(id)`, but no frontend page calls them directly — every
+    page works from list results already in hand — so no
+    `GET /categories/{id}` or `GET /expenses/{id}` is specified here.
+    `ApiCareSplitService` still implements both, to stay a complete
+    `CareSplitService`, by fetching the list and filtering client-side. A
+    real backend may still want
     to offer them, but the frontend does not require them.
 
     Authentication: every endpoint requires a bearer token **except**

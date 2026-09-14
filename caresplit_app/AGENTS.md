@@ -8,35 +8,41 @@ Instructions for coding agents working in this repo.
 backend/    Python package `caresplit_backend`: domain types, services layer,
             and a FastAPI app (caresplit_backend/api/) implementing openapi.yaml.
             Its tests too.
-frontend/   NiceGUI app `caresplit_frontend` (UI) and its tests
+frontend/   NiceGUI app `caresplit_frontend` (UI), an HTTP client for the
+            API (api_client.py), and its tests.
 docs/       supporting documentation, incl. spec.md (the product/architecture spec)
 openapi.yaml  the API contract — implemented by backend/caresplit_backend/api/ (see below)
 ```
 
-## Current architecture (important: read before assuming a network boundary)
+## Current architecture
 
-`frontend` still imports `caresplit_backend` directly, in-process — there
-is **no HTTP call between frontend and backend today.** `openapi.yaml` is
-implemented (`backend/caresplit_backend/api/`, a real runnable FastAPI
-app, tested independently in `backend/tests/test_api_*.py`), but nothing
-currently wires the frontend to call it over the network. If asked to make
-the frontend actually use the API, that means adding an HTTP-backed
-`CareSplitService` implementation in `frontend/` (an "ApiCareSplitService")
-plus a place to store the bearer token client-side — it does not exist
-yet. Don't assume it's wired up; check `frontend/caresplit_frontend/pages/*.py`
-for what actually runs (still calling `caresplit_backend.services.get_service()`
-directly).
+The frontend calls the real backend over HTTP **by default.** Every page
+calls `caresplit_frontend.services.get_service()`, which by default
+constructs `ApiCareSplitService` (`frontend/caresplit_frontend/api_client.py`)
+— an `httpx`-based `CareSplitService` implementation that logs in (bearer
+token, cached and reused, auto-refreshed on expiry) and speaks the exact
+wire format in `openapi.yaml` (camelCase, decimals as strings). This means
+**running the frontend for real now requires the backend to be running**
+(`uv run uvicorn caresplit_backend.api.main:app --app-dir backend`) —
+without it, the frontend will fail to log in on first use.
+
+Set `CARESPLIT_BACKEND=mock` to run the frontend against the in-process
+`MockCareSplitService` instead — no backend process needed. This is what
+`frontend/tests/conftest.py` forces for every frontend test, so the test
+suite as a whole never needs a live server. Other env vars
+`ApiCareSplitService` reads: `CARESPLIT_API_URL` (default
+`http://localhost:8000`), `CARESPLIT_API_USERNAME` /
+`CARESPLIT_API_PASSWORD` (default to the backend's seeded demo login).
 
 All business logic and data access goes through `CareSplitService`
-(`backend/caresplit_backend/services/base.py`), a Protocol. UI code (and
-the FastAPI routers) must never touch storage directly — always call
-`caresplit_backend.services.get_service()` (in-process) or, inside the API
-layer, `caresplit_backend.api.store.get_store().expenses` (same
-`MockCareSplitService`, separately instantiated — the two are independent
-singletons, not shared state). The only implementation is
-`MockCareSplitService`, in-memory, seeded with starter categories. This is
-intentional: the whole app, and the API on its own, must run with no
-database and no external service.
+(`backend/caresplit_backend/services/base.py`), a Protocol — three
+implementations satisfy it: `MockCareSplitService` (in-process, backend
+package), `ApiCareSplitService` (HTTP, frontend package), and the FastAPI
+routers themselves call a *fourth*, separately-instantiated
+`MockCareSplitService` via `caresplit_backend.api.store.get_store().expenses`
+(the API's actual data store — not shared with anything else; resetting
+one does not reset another). UI code and FastAPI routers must never touch
+storage directly, always through one of these.
 
 ### The API layer (`backend/caresplit_backend/api/`)
 
@@ -87,41 +93,62 @@ alongside the pyproject.toml change.
 
 ## Running
 
+Two processes, both needed for the frontend to actually show data (start
+the backend first — the frontend logs in on first use and will error if
+it can't reach it):
+
 ```
-uv run python frontend/main.py
+uv run uvicorn caresplit_backend.api.main:app --app-dir backend --reload   # http://localhost:8000
+uv run python frontend/main.py                                             # http://localhost:8080
 ```
-Opens on http://localhost:8080/.
+
+Or `CARESPLIT_BACKEND=mock uv run python frontend/main.py` to run the
+frontend alone, against the in-process mock.
 
 ## Tests
 
 ```
 uv run pytest
 ```
-Runs both `backend/tests` and `frontend/tests` (see `pytest.ini` at the
-root — it sets `pythonpath = frontend` so `caresplit_frontend` is
-importable during collection, and registers NiceGUI's headless UI-testing
-plugin). `backend/tests/test_domain.py` and `test_mock_service.py` cover
-the domain math and the mock service in isolation; `test_api_*.py` drive
-the FastAPI app through `fastapi.testclient.TestClient` (see
-`backend/tests/conftest.py` for the `client`/`auth_headers` fixtures);
-`frontend/tests/test_ui.py` drives real pages/dialogs through
-`nicegui.testing.User` against the mock service, no browser needed.
+No live server needed for any of it — see `pytest.ini` at the root (sets
+`pythonpath = frontend`, registers NiceGUI's headless UI-testing plugin).
 
-Two independent autouse reset fixtures exist — don't assume state persists
-between tests, and don't assume resetting one resets the other:
-- root `conftest.py`: `fresh_mock_service` resets the frontend-facing
-  `caresplit_backend.services.get_service()` singleton.
-- `backend/tests/conftest.py`: `_reset_api_state` resets the API's own
-  `caresplit_backend.api.store` singleton and clears issued tokens.
+- `backend/tests/test_domain.py`, `test_mock_service.py` — domain math and
+  the mock service, in isolation.
+- `backend/tests/test_api_*.py` — the FastAPI app through
+  `fastapi.testclient.TestClient` (see `backend/tests/conftest.py` for the
+  `client`/`auth_headers` fixtures).
+- `frontend/tests/test_ui.py` — real pages/dialogs through
+  `nicegui.testing.User`. `frontend/tests/conftest.py` forces
+  `CARESPLIT_BACKEND=mock`, so these run against the in-process mock, not
+  the API.
+- `frontend/tests/test_api_client.py` — `ApiCareSplitService` against the
+  real FastAPI app, on a real (ephemeral, localhost) uvicorn server
+  started in a background thread for the test module. httpx's
+  `ASGITransport` doesn't work here — it's async-only, and
+  `ApiCareSplitService` is deliberately sync (same calling convention as
+  the mock) — hence an actual, if throwaway, server.
+
+Two independent autouse reset fixtures live in `frontend/tests/conftest.py`
+— don't assume state persists between tests, and don't assume resetting
+one resets the other: `_reset_frontend_service` resets the frontend's own
+`caresplit_frontend.services` singleton (forced to mock);
+`_reset_backend_api_state` resets the API's `caresplit_backend.api.store`
+singleton and clears issued tokens — needed for `test_api_client.py`, a
+no-op for `test_ui.py`. `backend/tests/conftest.py` has its own,
+independent copy of the latter for `backend/tests/test_api_*.py`.
 
 ## Conventions
 
 - No comments explaining *what* code does — only *why*, and only when
   non-obvious (see existing files for the tone).
 - New backend-visible behavior goes through `CareSplitService`
-  (`backend/caresplit_backend/services/base.py`) first, then
-  `MockCareSplitService`, then the UI. Don't let a page reach past the
-  service layer.
+  (`backend/caresplit_backend/services/base.py`) first, then every
+  implementation: `MockCareSplitService`, the API layer
+  (`routers/`, `models.py`, and `openapi.yaml` itself), and
+  `ApiCareSplitService` on the frontend side — then the UI. Don't let a
+  page reach past the service layer, and don't add a method to the
+  protocol without adding it everywhere else that must satisfy it.
 - Money and percentages are `Decimal`, never `float`, in
   `caresplit_backend`. The one place floats appear is NiceGUI's
   `ui.number` widgets on the frontend; convert via `Decimal(str(value))`

@@ -5,7 +5,7 @@ from datetime import date
 
 from nicegui import events, ui
 
-from caresplit_backend.services import get_service
+from caresplit_frontend.services import get_service
 from caresplit_frontend.layout import page_layout
 
 
