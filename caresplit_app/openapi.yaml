@@ -1,0 +1,341 @@
+openapi: 3.0.3
+info:
+  title: CareSplit API
+  version: 0.1.0
+  description: >
+    Forward-looking contract for a real CareSplit backend. Not implemented
+    yet: /backend currently only exposes the CareSplitService Python
+    protocol (see backend/caresplit_backend/services/base.py), used
+    in-process by /frontend via its mock implementation. This document
+    describes the REST shape that a network-separated backend would serve,
+    so the two sides can be built independently once that split happens.
+servers:
+  - url: http://localhost:8000
+paths:
+  /categories:
+    get:
+      summary: List categories
+      operationId: listCategories
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+    post:
+      summary: Create a category
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "409":
+          description: A category with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /categories/{categoryId}:
+    parameters:
+      - name: categoryId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a category
+      operationId: getCategory
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: Update a category
+      operationId: updateCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    delete:
+      summary: Delete a category
+      description: Fails if any expense still references this category.
+      operationId: deleteCategory
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Category still has expenses attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /expenses:
+    get:
+      summary: List expenses
+      operationId: listExpenses
+      parameters:
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Expense"
+    post:
+      summary: Create an expense
+      operationId: createExpense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Expense"
+  /expenses/{expenseId}:
+    parameters:
+      - name: expenseId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get an expense
+      operationId: getExpense
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Expense"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: Update an expense
+      operationId: updateExpense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Expense"
+    delete:
+      summary: Delete an expense
+      operationId: deleteExpense
+      responses:
+        "204":
+          description: Deleted
+  /dashboard:
+    get:
+      summary: Dashboard totals (this month and this year) plus recent expenses
+      operationId: getDashboard
+      parameters:
+        - name: today
+          in: query
+          required: false
+          description: ISO date to treat as "today" (defaults to the server's today)
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardTotals"
+  /reports/years:
+    get:
+      summary: Years that have at least one expense
+      operationId: listAvailableYears
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: integer
+  /reports/{year}:
+    parameters:
+      - name: year
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Yearly report broken down by category and by month
+      operationId: getYearlyReport
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearlyReport"
+components:
+  schemas:
+    Category:
+      type: object
+      required: [id, name, pctMe, pctInsurance]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        pctMe:
+          type: number
+          format: decimal
+          description: Default percent of an expense in this category that is the user's share.
+        pctInsurance:
+          type: number
+          format: decimal
+          description: "Derived: 100 - pctMe."
+        notes: { type: string }
+    CategoryInput:
+      type: object
+      required: [name, pctMe]
+      properties:
+        name: { type: string }
+        pctMe: { type: number, format: decimal }
+        notes: { type: string }
+    Expense:
+      type: object
+      required:
+        [id, date, categoryId, categoryName, amount, pctMe, pctInsurance, amountMe, amountInsurance]
+      properties:
+        id: { type: integer }
+        date: { type: string, format: date }
+        categoryId: { type: integer }
+        categoryName: { type: string }
+        amount: { type: number, format: decimal }
+        description: { type: string }
+        pctMe:
+          type: number
+          format: decimal
+          description: This expense's split; copied from the category default at creation, editable after.
+        pctInsurance: { type: number, format: decimal }
+        amountMe: { type: number, format: decimal }
+        amountInsurance: { type: number, format: decimal }
+        note: { type: string }
+        receiptFilename:
+          type: string
+          nullable: true
+    ExpenseInput:
+      type: object
+      required: [date, categoryId, amount]
+      properties:
+        date: { type: string, format: date }
+        categoryId: { type: integer }
+        amount: { type: number, format: decimal }
+        description: { type: string }
+        pctMe:
+          type: number
+          format: decimal
+          nullable: true
+          description: Omit to use the category's current default split.
+        note: { type: string }
+        receiptFilename:
+          type: string
+          nullable: true
+    Totals:
+      type: object
+      required: [total, me, insurance]
+      properties:
+        total: { type: number, format: decimal }
+        me: { type: number, format: decimal }
+        insurance: { type: number, format: decimal }
+    DashboardTotals:
+      type: object
+      required: [month, year, recent]
+      properties:
+        month: { $ref: "#/components/schemas/Totals" }
+        year: { $ref: "#/components/schemas/Totals" }
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/Expense"
+    CategoryBreakdown:
+      type: object
+      required: [categoryName, totals]
+      properties:
+        categoryName: { type: string }
+        totals: { $ref: "#/components/schemas/Totals" }
+    MonthBreakdown:
+      type: object
+      required: [month, totals]
+      properties:
+        month: { type: integer, minimum: 1, maximum: 12 }
+        totals: { $ref: "#/components/schemas/Totals" }
+    YearlyReport:
+      type: object
+      required: [year, totals, byCategory, byMonth]
+      properties:
+        year: { type: integer }
+        totals: { $ref: "#/components/schemas/Totals" }
+        byCategory:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryBreakdown"
+        byMonth:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthBreakdown"
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
