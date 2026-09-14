@@ -13,25 +13,45 @@ CareSplit throughout the code, UI, and docs.
 ## Layout
 
 ```
-backend/       caresplit_backend — domain types + services layer, and its tests
+backend/       caresplit_backend — domain types, services layer, a FastAPI
+               app implementing openapi.yaml, and all of that's tests
 frontend/      caresplit_frontend — the NiceGUI UI, and its tests
 docs/          spec.md and other supporting documentation
 AGENTS.md      instructions for coding agents
-openapi.yaml   the REST contract a real, network-separated backend would serve
+openapi.yaml   the REST contract — implemented by backend/caresplit_backend/api/
 pyproject.toml the uv workspace root (backend + frontend are its members)
 uv.lock        locked, resolved versions for the whole workspace
 ```
 
-`backend` and `frontend` are separate folders but not yet separate
-*services* — the frontend imports the backend package directly, in-process.
-See [AGENTS.md](AGENTS.md) for details on that distinction, and why
-`openapi.yaml` doesn't have a live server behind it yet.
+The FastAPI app is real and tested, but the frontend doesn't call it yet —
+it still talks to the services layer in-process. See [AGENTS.md](AGENTS.md)
+for that distinction in more detail.
 
 Every backend call the UI makes goes through one services layer
 (`CareSplitService`, `backend/caresplit_backend/services/base.py`). The
-only implementation today is an in-memory mock, seeded with starter
-categories — **the whole app runs with no database and no backend to
-stand up.**
+only implementation is an in-memory mock, seeded with starter categories —
+**the whole app runs with no database, and no backend process needs to be
+started, for the frontend to work.**
+
+## The API
+
+```
+uv run uvicorn caresplit_backend.api.main:app --app-dir backend --reload
+```
+
+Then open http://localhost:8000/docs for interactive docs, or:
+
+```
+curl -X POST http://localhost:8000/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username": "cindy", "password": "caresplit-demo"}'
+```
+
+to get a bearer token (demo credentials — see
+`backend/caresplit_backend/api/store.py`), then send it back as
+`Authorization: Bearer <accessToken>` on every other endpoint. Seeded with
+a handful of sample expenses so `/dashboard` and `/reports/*` aren't empty
+on first run.
 
 ## Running locally
 
@@ -54,13 +74,19 @@ Then open http://localhost:8080/. To add a dependency to one member, run
 uv run pytest
 ```
 
-32 tests: pure unit tests of the split math and the mock service
-(`backend/tests/`), plus headless UI tests via `nicegui.testing.User`
-that click through the dashboard, expenses, and categories pages against
-the mock service (`frontend/tests/`) — no browser, no backend required.
+65 tests: unit tests of the split math and the mock service, FastAPI
+endpoint tests (auth, categories, expenses, dashboard, reports — via
+`fastapi.testclient.TestClient`, no server process needed) in
+`backend/tests/`, plus headless UI tests via `nicegui.testing.User` that
+click through the dashboard, expenses, and categories pages against the
+mock service in `frontend/tests/` — no browser, no live backend required
+for any of it.
 
 ## Status
 
-v1, mock-backed, local only. See [docs/spec.md](docs/spec.md) for full
-scope and what's deliberately deferred (multi-user login, settle-up
-tracking, export).
+v1. Frontend and the mock service layer are what actually runs the app
+day to day; the FastAPI backend in `backend/caresplit_backend/api/` is a
+complete, independently-tested implementation of `openapi.yaml` that
+nothing calls yet. See [docs/spec.md](docs/spec.md) for full product scope
+and what's deliberately deferred (multi-user accounts beyond the single
+seeded login, settle-up tracking, export).

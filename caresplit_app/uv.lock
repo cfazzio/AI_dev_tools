@@ -270,16 +270,28 @@ wheels = [
 name = "caresplit-backend"
 version = "0.1.0"
 source = { editable = "backend" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = "==0.141.1" },
+    { name = "uvicorn", specifier = "==0.53.0" },
+]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = "==9.1.1" }]
+dev = [
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "pytest", specifier = "==9.1.1" },
+]
 
 [[package]]
 name = "caresplit-frontend"

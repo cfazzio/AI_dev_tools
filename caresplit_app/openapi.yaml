@@ -1,16 +1,17 @@
 openapi: 3.0.3
 info:
   title: CareSplit API
-  version: 0.1.0
+  version: 0.2.0
   description: >
     The backend contract the CareSplit frontend expects, derived directly
     from every call `frontend/` makes to `caresplit_backend.services.get_service()`
     (its `CareSplitService` protocol client — see
-    `backend/caresplit_backend/services/base.py`). Nothing here is
-    implemented as a live HTTP server today: the frontend calls the
-    service in-process against `MockCareSplitService`. This document is
-    the contract a network-separated backend would have to satisfy to be
-    a drop-in replacement.
+    `backend/caresplit_backend/services/base.py`). Implemented as a real,
+    runnable FastAPI app at `backend/caresplit_backend/api/` (in-memory
+    store, not a database) — see that package's `main.py` to run it. The
+    frontend itself still talks to the service in-process, not over HTTP;
+    this API is a standalone, independently-tested implementation of the
+    same contract, not (yet) what the frontend actually calls.
 
     Scope note: only operations the frontend actually invokes are
     included. `CareSplitService` also defines `get_category(id)` and
@@ -19,11 +20,14 @@ info:
     `GET /expenses/{id}` is specified here. A real backend may still want
     to offer them, but the frontend does not require them.
 
-    Authentication: **no endpoint requires authentication.** This is a
-    single local user's app with no login, session, or token concept
-    anywhere in `frontend/` or `backend/` — there is nothing to
-    authenticate. `security: []` below is the accurate reflection of
-    that, not a placeholder.
+    Authentication: every endpoint requires a bearer token **except**
+    `POST /auth/token` (logging in, obviously, can't require the token
+    logging in produces). Passwords are hashed server-side (PBKDF2-HMAC-
+    SHA256 with a random salt, not reversible, never compared in plain
+    text); tokens are opaque random strings held server-side with a
+    24-hour expiry, not JWTs — there is nothing for a client to decode,
+    and the server can't be tricked by a forged one. See
+    `backend/caresplit_backend/api/auth.py`.
 
     Numbers: money and percentages are `Decimal` throughout the Python
     domain layer (see `backend/caresplit_backend/domain.py`), specifically
@@ -41,21 +45,52 @@ info:
     one.
 servers:
   - url: http://localhost:8000
-security: []
+security:
+  - bearerAuth: []
 tags:
+  - name: auth
   - name: categories
   - name: expenses
   - name: dashboard
   - name: reports
 paths:
+  /auth/token:
+    post:
+      tags: [auth]
+      summary: Log in and obtain a bearer token
+      description: >
+        The only endpoint that does not require a bearer token — it's how
+        you get one. Send it back as `Authorization: Bearer <accessToken>`
+        on every other request.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          description: Unknown username, or the password doesn't match it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /categories:
     get:
       tags: [categories]
       summary: List categories
       description: Called by the Expenses page (to build the category filter/select) and the Categories page.
       operationId: listCategories
-      security: []
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -69,7 +104,6 @@ paths:
       summary: Create a category
       description: Called from the Categories page's "Add category" dialog.
       operationId: createCategory
-      security: []
       requestBody:
         required: true
         content:
@@ -77,6 +111,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CategoryCreate"
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "201":
           description: Created
           content:
@@ -107,7 +142,6 @@ paths:
         (`update_category`) treats every field as optional, so this is
         specified as a partial update.
       operationId: updateCategory
-      security: []
       requestBody:
         required: true
         content:
@@ -115,6 +149,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CategoryUpdate"
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -141,8 +176,8 @@ paths:
         expense still references this category — the frontend shows the
         409 message inline rather than pre-checking.
       operationId: deleteCategory
-      security: []
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "204":
           description: Deleted
         "404":
@@ -163,7 +198,6 @@ paths:
       summary: List expenses, optionally filtered by category
       description: Called by the Expenses page for its main list and category filter.
       operationId: listExpenses
-      security: []
       parameters:
         - name: categoryId
           in: query
@@ -172,6 +206,7 @@ paths:
           schema:
             type: integer
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: >
             OK. Newest first (by date, then id) — the frontend relies on
@@ -187,7 +222,6 @@ paths:
       summary: Create an expense
       description: Called from the Expenses page's "Add expense" dialog.
       operationId: createExpense
-      security: []
       requestBody:
         required: true
         content:
@@ -195,6 +229,7 @@ paths:
             schema:
               $ref: "#/components/schemas/ExpenseCreate"
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "201":
           description: Created
           content:
@@ -223,7 +258,6 @@ paths:
         underlying protocol (`update_expense`) treats every field as
         optional, so this is specified as a partial update.
       operationId: updateExpense
-      security: []
       requestBody:
         required: true
         content:
@@ -231,6 +265,7 @@ paths:
             schema:
               $ref: "#/components/schemas/ExpenseUpdate"
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -251,8 +286,8 @@ paths:
       summary: Delete an expense
       description: Called from the Expenses page's edit dialog ("Delete" button).
       operationId: deleteExpense
-      security: []
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "204":
           description: Deleted
         "404":
@@ -272,7 +307,6 @@ paths:
         deliberate, since a network-separated backend could be in a
         different timezone than the user.
       operationId: getDashboard
-      security: []
       parameters:
         - name: today
           in: query
@@ -281,6 +315,7 @@ paths:
             type: string
             format: date
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -296,8 +331,8 @@ paths:
         Descending order (newest first) — the frontend selects `years[0]`
         as the default and does not re-sort.
       operationId: listAvailableYears
-      security: []
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -323,8 +358,8 @@ paths:
         "no report for this year" error handling, only an empty-state
         message driven by empty arrays.
       operationId: getYearlyReport
-      security: []
       responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: OK
           content:
@@ -332,7 +367,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/YearlyReport"
 components:
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or expired bearer token. Every operation except POST /auth/token can return this.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        An opaque token obtained from POST /auth/token, sent as
+        `Authorization: Bearer <token>`. Not a JWT — the server holds the
+        token/username/expiry mapping itself, so there's nothing for a
+        client to inspect or decode.
   schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+    TokenResponse:
+      type: object
+      required: [accessToken, tokenType, expiresAt]
+      properties:
+        accessToken:
+          type: string
+          description: "Opaque bearer token. Send as `Authorization: Bearer <accessToken>`."
+        tokenType:
+          type: string
+          enum: [bearer]
+        expiresAt:
+          type: string
+          format: date-time
+          description: The token stops working after this instant (24 hours after issue).
     Decimal:
       type: string
       format: decimal
