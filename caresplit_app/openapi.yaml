@@ -3,19 +3,58 @@ info:
   title: CareSplit API
   version: 0.1.0
   description: >
-    Forward-looking contract for a real CareSplit backend. Not implemented
-    yet: /backend currently only exposes the CareSplitService Python
-    protocol (see backend/caresplit_backend/services/base.py), used
-    in-process by /frontend via its mock implementation. This document
-    describes the REST shape that a network-separated backend would serve,
-    so the two sides can be built independently once that split happens.
+    The backend contract the CareSplit frontend expects, derived directly
+    from every call `frontend/` makes to `caresplit_backend.services.get_service()`
+    (its `CareSplitService` protocol client — see
+    `backend/caresplit_backend/services/base.py`). Nothing here is
+    implemented as a live HTTP server today: the frontend calls the
+    service in-process against `MockCareSplitService`. This document is
+    the contract a network-separated backend would have to satisfy to be
+    a drop-in replacement.
+
+    Scope note: only operations the frontend actually invokes are
+    included. `CareSplitService` also defines `get_category(id)` and
+    `get_expense(id)`, but no frontend page calls them — every page works
+    from list results already in hand — so no `GET /categories/{id}` or
+    `GET /expenses/{id}` is specified here. A real backend may still want
+    to offer them, but the frontend does not require them.
+
+    Authentication: **no endpoint requires authentication.** This is a
+    single local user's app with no login, session, or token concept
+    anywhere in `frontend/` or `backend/` — there is nothing to
+    authenticate. `security: []` below is the accurate reflection of
+    that, not a placeholder.
+
+    Numbers: money and percentages are `Decimal` throughout the Python
+    domain layer (see `backend/caresplit_backend/domain.py`), specifically
+    to avoid float rounding error. They are serialized here as **strings**
+    (`format: decimal`), not JSON numbers, so a client never has to round-
+    trip them through a float. Field names are camelCase on the wire;
+    the Python layer they come from is snake_case (e.g. `pctMe` ==
+    `pct_me`).
+
+    Receipts: `receiptFilename` is an opaque string the backend stores and
+    returns verbatim. Today the frontend saves the uploaded file straight
+    to local disk (`frontend/caresplit_frontend/receipts.py`) and only
+    ever passes a filename through the service calls below — there is no
+    upload endpoint in this contract, because the frontend never calls
+    one.
 servers:
   - url: http://localhost:8000
+security: []
+tags:
+  - name: categories
+  - name: expenses
+  - name: dashboard
+  - name: reports
 paths:
   /categories:
     get:
+      tags: [categories]
       summary: List categories
+      description: Called by the Expenses page (to build the category filter/select) and the Categories page.
       operationId: listCategories
+      security: []
       responses:
         "200":
           description: OK
@@ -26,14 +65,17 @@ paths:
                 items:
                   $ref: "#/components/schemas/Category"
     post:
+      tags: [categories]
       summary: Create a category
+      description: Called from the Categories page's "Add category" dialog.
       operationId: createCategory
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CategoryInput"
+              $ref: "#/components/schemas/CategoryCreate"
       responses:
         "201":
           description: Created
@@ -42,7 +84,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Category"
         "409":
-          description: A category with this name already exists
+          description: >
+            A category with this name already exists (case-insensitive).
+            Maps to `DuplicateCategoryError`.
           content:
             application/json:
               schema:
@@ -54,9 +98,22 @@ paths:
         required: true
         schema:
           type: integer
-    get:
-      summary: Get a category
-      operationId: getCategory
+    patch:
+      tags: [categories]
+      summary: Update a category
+      description: >
+        Called from the Categories page's edit dialog. The frontend always
+        sends all three fields together today, but the underlying protocol
+        (`update_category`) treats every field as optional, so this is
+        specified as a partial update.
+      operationId: updateCategory
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryUpdate"
       responses:
         "200":
           description: OK
@@ -65,53 +122,60 @@ paths:
               schema:
                 $ref: "#/components/schemas/Category"
         "404":
-          description: Not found
+          description: No category with this id. Maps to `NotFoundError`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-    patch:
-      summary: Update a category
-      operationId: updateCategory
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CategoryInput"
-      responses:
-        "200":
-          description: OK
+        "409":
+          description: Renaming to a name that already exists. Maps to `DuplicateCategoryError`.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Category"
+                $ref: "#/components/schemas/Error"
     delete:
+      tags: [categories]
       summary: Delete a category
-      description: Fails if any expense still references this category.
+      description: >
+        Called from the Categories page's edit dialog. Fails if any
+        expense still references this category — the frontend shows the
+        409 message inline rather than pre-checking.
       operationId: deleteCategory
+      security: []
       responses:
         "204":
           description: Deleted
+        "404":
+          description: No category with this id. Maps to `NotFoundError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
-          description: Category still has expenses attached
+          description: Category still has expenses attached. Maps to `CategoryInUseError`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
   /expenses:
     get:
-      summary: List expenses
+      tags: [expenses]
+      summary: List expenses, optionally filtered by category
+      description: Called by the Expenses page for its main list and category filter.
       operationId: listExpenses
+      security: []
       parameters:
         - name: categoryId
           in: query
           required: false
+          description: Omit for all expenses across every category.
           schema:
             type: integer
       responses:
         "200":
-          description: OK
+          description: >
+            OK. Newest first (by date, then id) — the frontend relies on
+            this ordering and does not sort client-side.
           content:
             application/json:
               schema:
@@ -119,14 +183,17 @@ paths:
                 items:
                   $ref: "#/components/schemas/Expense"
     post:
+      tags: [expenses]
       summary: Create an expense
+      description: Called from the Expenses page's "Add expense" dialog.
       operationId: createExpense
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ExpenseInput"
+              $ref: "#/components/schemas/ExpenseCreate"
       responses:
         "201":
           description: Created
@@ -134,6 +201,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Expense"
+        "404":
+          description: categoryId does not refer to an existing category. Maps to `NotFoundError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /expenses/{expenseId}:
     parameters:
       - name: expenseId
@@ -141,9 +214,22 @@ paths:
         required: true
         schema:
           type: integer
-    get:
-      summary: Get an expense
-      operationId: getExpense
+    patch:
+      tags: [expenses]
+      summary: Update an expense
+      description: >
+        Called from the Expenses page's edit dialog. The frontend always
+        sends every field today (it re-submits the whole form), but the
+        underlying protocol (`update_expense`) treats every field as
+        optional, so this is specified as a partial update.
+      operationId: updateExpense
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseUpdate"
       responses:
         "200":
           description: OK
@@ -152,42 +238,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/Expense"
         "404":
-          description: Not found
+          description: >
+            No expense with this id, or (if categoryId was included in the
+            request) categoryId does not refer to an existing category.
+            Both map to `NotFoundError`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-    patch:
-      summary: Update an expense
-      operationId: updateExpense
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ExpenseInput"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Expense"
     delete:
+      tags: [expenses]
       summary: Delete an expense
+      description: Called from the Expenses page's edit dialog ("Delete" button).
       operationId: deleteExpense
+      security: []
       responses:
         "204":
           description: Deleted
+        "404":
+          description: No expense with this id. Maps to `NotFoundError`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /dashboard:
     get:
-      summary: Dashboard totals (this month and this year) plus recent expenses
+      tags: [dashboard]
+      summary: This month's and this year's totals, plus recent expenses
+      description: >
+        Called once by the Home page. `today` is required: the frontend
+        always computes its own local date and sends it explicitly
+        (`date.today()`), rather than relying on the server's clock —
+        deliberate, since a network-separated backend could be in a
+        different timezone than the user.
       operationId: getDashboard
+      security: []
       parameters:
         - name: today
           in: query
-          required: false
-          description: ISO date to treat as "today" (defaults to the server's today)
+          required: true
           schema:
             type: string
             format: date
@@ -200,8 +289,14 @@ paths:
                 $ref: "#/components/schemas/DashboardTotals"
   /reports/years:
     get:
+      tags: [reports]
       summary: Years that have at least one expense
+      description: >
+        Called once by the Reports page to populate the year picker.
+        Descending order (newest first) — the frontend selects `years[0]`
+        as the default and does not re-sort.
       operationId: listAvailableYears
+      security: []
       responses:
         "200":
           description: OK
@@ -219,8 +314,16 @@ paths:
         schema:
           type: integer
     get:
+      tags: [reports]
       summary: Yearly report broken down by category and by month
+      description: >
+        Called by the Reports page whenever the selected year changes.
+        Years with no expenses return a valid, empty report (zeroed
+        totals, empty breakdowns) rather than a 404 — the frontend has no
+        "no report for this year" error handling, only an empty-state
+        message driven by empty arrays.
       operationId: getYearlyReport
+      security: []
       responses:
         "200":
           description: OK
@@ -230,63 +333,120 @@ paths:
                 $ref: "#/components/schemas/YearlyReport"
 components:
   schemas:
+    Decimal:
+      type: string
+      format: decimal
+      description: A base-10 decimal, serialized as a string to avoid float rounding error. Matches Python's Decimal on the backend.
+      example: "42.50"
     Category:
       type: object
-      required: [id, name, pctMe, pctInsurance]
+      required: [id, name, pctMe, pctInsurance, notes]
       properties:
         id: { type: integer }
         name: { type: string }
         pctMe:
-          type: number
-          format: decimal
-          description: Default percent of an expense in this category that is the user's share.
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: Default percent of an expense in this category that is the user's share (0-100).
         pctInsurance:
-          type: number
-          format: decimal
-          description: "Derived: 100 - pctMe."
-        notes: { type: string }
-    CategoryInput:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: "Read-only, server-computed: 100 - pctMe."
+          readOnly: true
+        notes:
+          type: string
+    CategoryCreate:
       type: object
       required: [name, pctMe]
       properties:
         name: { type: string }
-        pctMe: { type: number, format: decimal }
+        pctMe: { $ref: "#/components/schemas/Decimal" }
+        notes:
+          type: string
+          default: ""
+    CategoryUpdate:
+      type: object
+      description: Every field optional; only the fields present are changed.
+      properties:
+        name: { type: string }
+        pctMe: { $ref: "#/components/schemas/Decimal" }
         notes: { type: string }
     Expense:
       type: object
       required:
-        [id, date, categoryId, categoryName, amount, pctMe, pctInsurance, amountMe, amountInsurance]
+        - id
+        - date
+        - categoryId
+        - categoryName
+        - amount
+        - pctMe
+        - pctInsurance
+        - amountMe
+        - amountInsurance
+        - description
+        - note
+        - receiptFilename
       properties:
         id: { type: integer }
         date: { type: string, format: date }
         categoryId: { type: integer }
-        categoryName: { type: string }
-        amount: { type: number, format: decimal }
-        description: { type: string }
+        categoryName:
+          type: string
+          description: Denormalized at write time from the category. Read-only.
+          readOnly: true
+        amount: { $ref: "#/components/schemas/Decimal" }
         pctMe:
-          type: number
-          format: decimal
-          description: This expense's split; copied from the category default at creation, editable after.
-        pctInsurance: { type: number, format: decimal }
-        amountMe: { type: number, format: decimal }
-        amountInsurance: { type: number, format: decimal }
-        note: { type: string }
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: This expense's own split. Copied from the category's current pctMe at creation if not supplied; independent of the category afterward.
+        pctInsurance:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: "Read-only, server-computed: 100 - pctMe."
+          readOnly: true
+        amountMe:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: "Read-only, server-computed: amount * pctMe / 100, rounded half-up to 2dp."
+          readOnly: true
+        amountInsurance:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: "Read-only, server-computed: amount - amountMe."
+          readOnly: true
+        description:
+          type: string
+          default: ""
+        note:
+          type: string
+          default: ""
         receiptFilename:
           type: string
           nullable: true
-    ExpenseInput:
+          description: Opaque filename passed through as-is; the backend does not interpret it. No upload endpoint exists in this contract (see info.description).
+    ExpenseCreate:
       type: object
       required: [date, categoryId, amount]
       properties:
         date: { type: string, format: date }
         categoryId: { type: integer }
-        amount: { type: number, format: decimal }
-        description: { type: string }
+        amount: { $ref: "#/components/schemas/Decimal" }
+        description:
+          type: string
+          default: ""
         pctMe:
-          type: number
-          format: decimal
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
           nullable: true
-          description: Omit to use the category's current default split.
+          description: Omit or null to copy the category's current pctMe at creation time.
+        note:
+          type: string
+          default: ""
+        receiptFilename:
+          type: string
+          nullable: true
+    ExpenseUpdate:
+      type: object
+      description: Every field optional; only the fields present are changed. pctMe is set literally (never re-derived from the category), including when categoryId also changes in the same request.
+      properties:
+        date: { type: string, format: date }
+        categoryId: { type: integer }
+        amount: { $ref: "#/components/schemas/Decimal" }
+        description: { type: string }
+        pctMe: { $ref: "#/components/schemas/Decimal" }
         note: { type: string }
         receiptFilename:
           type: string
@@ -295,17 +455,26 @@ components:
       type: object
       required: [total, me, insurance]
       properties:
-        total: { type: number, format: decimal }
-        me: { type: number, format: decimal }
-        insurance: { type: number, format: decimal }
+        total: { $ref: "#/components/schemas/Decimal" }
+        me: { $ref: "#/components/schemas/Decimal" }
+        insurance:
+          allOf: [{ $ref: "#/components/schemas/Decimal" }]
+          description: "Read-only, server-computed: total - me."
+          readOnly: true
     DashboardTotals:
       type: object
       required: [month, year, recent]
       properties:
-        month: { $ref: "#/components/schemas/Totals" }
-        year: { $ref: "#/components/schemas/Totals" }
+        month:
+          allOf: [{ $ref: "#/components/schemas/Totals" }]
+          description: Totals for the calendar month containing the `today` query param.
+        year:
+          allOf: [{ $ref: "#/components/schemas/Totals" }]
+          description: Totals for the calendar year containing the `today` query param.
         recent:
           type: array
+          description: The 8 most recent expenses across all categories, newest first.
+          maxItems: 8
           items:
             $ref: "#/components/schemas/Expense"
     CategoryBreakdown:
@@ -318,24 +487,33 @@ components:
       type: object
       required: [month, totals]
       properties:
-        month: { type: integer, minimum: 1, maximum: 12 }
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
         totals: { $ref: "#/components/schemas/Totals" }
     YearlyReport:
       type: object
       required: [year, totals, byCategory, byMonth]
       properties:
         year: { type: integer }
-        totals: { $ref: "#/components/schemas/Totals" }
+        totals:
+          allOf: [{ $ref: "#/components/schemas/Totals" }]
+          description: Totals across the whole year.
         byCategory:
           type: array
+          description: One entry per category that has at least one expense in this year, ordered by total descending. Categories with no expenses this year are omitted, not zeroed.
           items:
             $ref: "#/components/schemas/CategoryBreakdown"
         byMonth:
           type: array
+          description: One entry per month (1-12) that has at least one expense, in calendar order. Months with no expenses are omitted, not zeroed.
           items:
             $ref: "#/components/schemas/MonthBreakdown"
     Error:
       type: object
       required: [message]
       properties:
-        message: { type: string }
+        message:
+          type: string
+          description: Human-readable message. The frontend displays this string directly in the dialog's error area — it is not machine-parsed.
