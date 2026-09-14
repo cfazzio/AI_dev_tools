@@ -32,29 +32,34 @@ external service.
 
 ## Setup
 
-One shared virtualenv at the repo root works for both apps:
+Managed with [uv](https://docs.astral.sh/uv/). `backend` and `frontend`
+are members of one uv workspace (`pyproject.toml` + `uv.lock` at the repo
+root) sharing a single `.venv`. `frontend`'s dependency on
+`caresplit-backend` is declared as a workspace source
+(`frontend/pyproject.toml`'s `[tool.uv.sources]`), so `uv sync` installs it
+editable automatically — that's what makes `import caresplit_backend` work
+from `frontend/` with no path hacks.
 
 ```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend/requirements.txt -r frontend/requirements.txt
-pip install -e backend/
+uv sync
 ```
 
-The editable install is what makes `import caresplit_backend` work from
-`frontend/` without path hacks.
+To add a dependency: `uv add <package>` from inside `backend/` or
+`frontend/` (uv resolves against the nearest pyproject.toml). Don't hand-edit
+`uv.lock`; let `uv add`/`uv sync` regenerate it, and commit the lockfile
+alongside the pyproject.toml change.
 
 ## Running
 
 ```
-python frontend/main.py
+uv run python frontend/main.py
 ```
 Opens on http://localhost:8080/.
 
 ## Tests
 
 ```
-pytest
+uv run pytest
 ```
 Runs both `backend/tests` and `frontend/tests` (see `pytest.ini` at the
 root — it sets `pythonpath = frontend` so `caresplit_frontend` is
@@ -85,3 +90,6 @@ assume state persists between tests.
   `.mark("some-name")` call (see existing pages for the naming pattern:
   `<page>-<field>`, `<page>-row-<id>`).
 - Update `docs/spec.md` when product scope changes, not just the code.
+- Commit regularly — small, working increments (e.g. "add category delete
+  protection", "restructure into backend/frontend") rather than one large
+  commit at the end of a session.

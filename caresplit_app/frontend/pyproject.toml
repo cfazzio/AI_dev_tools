@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caresplit-frontend"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "nicegui==3.16.0",
+    "caresplit-backend",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0"]
+
+[tool.uv.sources]
+caresplit-backend = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["caresplit_frontend*"]

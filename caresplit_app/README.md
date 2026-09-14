@@ -18,6 +18,8 @@ frontend/      caresplit_frontend — the NiceGUI UI, and its tests
 docs/          spec.md and other supporting documentation
 AGENTS.md      instructions for coding agents
 openapi.yaml   the REST contract a real, network-separated backend would serve
+pyproject.toml the uv workspace root (backend + frontend are its members)
+uv.lock        locked, resolved versions for the whole workspace
 ```
 
 `backend` and `frontend` are separate folders but not yet separate
@@ -33,23 +35,23 @@ stand up.**
 
 ## Running locally
 
-One shared virtualenv covers both apps:
+Managed with [uv](https://docs.astral.sh/uv/) — `backend` and `frontend`
+are members of one uv workspace, sharing a single `.venv` and lockfile at
+the repo root.
 
 ```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend/requirements.txt -r frontend/requirements.txt
-pip install -e backend/
-python frontend/main.py
+uv sync
+uv run python frontend/main.py
 ```
 
-Then open http://localhost:8080/.
+Then open http://localhost:8080/. To add a dependency to one member, run
+`uv add <package>` from inside `backend/` or `frontend/` (or
+`uv add --package caresplit-frontend <package>` from the root).
 
 ## Tests
 
 ```
-.venv\Scripts\activate
-pytest
+uv run pytest
 ```
 
 32 tests: pure unit tests of the split math and the mock service
